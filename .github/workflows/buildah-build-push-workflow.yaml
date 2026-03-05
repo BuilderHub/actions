@@ -78,7 +78,8 @@ jobs:
 
       - name: Tag and push arch-specific images
         run: |
-          img_id=$(buildah images -q -n "${{ env.IMAGE }}" | head -1)
+          # Resolve image ID by the reference the buildah-build action used (image:first_tag)
+          img_id=$(buildah images -q "${{ steps.build.outputs.image-with-tag }}" | head -1)
           for t in ${{ env.TAGS }}; do
             ref="${{ env.REGISTRY }}/${{ env.IMAGE }}:${t}-${{ matrix.arch }}"
             buildah tag "$img_id" "$ref"
