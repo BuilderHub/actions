@@ -13,7 +13,7 @@ Reusable workflows for building and pushing container images. Call them from you
 ```yaml
 jobs:
   build:
-    uses: builderhub/actions/.github/workflows/buildah-build-push-workflow.yaml@main
+    uses: builderhub/actions/.github/workflows/buildah-build-push-workflow.yaml@v0.1.0-beta
     with:
       image: myorg/myapp
       tags: latest ${{ github.sha }}
@@ -33,7 +33,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: builderhub/actions/.github/workflows/docker-build-push-workflow.yaml@main
+    uses: builderhub/actions/.github/workflows/docker-build-push-workflow.yaml@v0.1.0-beta
     with:
       image: myorg/myapp
       tags: latest ${{ github.sha }}
