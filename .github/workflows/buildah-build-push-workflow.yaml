@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Log in to registry
-        uses: redhat-actions/podman-login@v2
+        uses: redhat-actions/podman-login@v1.7
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME }}
@@ -91,7 +91,7 @@ jobs:
     needs: [build]
     steps:
       - name: Log in to registry
-        uses: redhat-actions/podman-login@v2
+        uses: redhat-actions/podman-login@v1.7
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME }}
