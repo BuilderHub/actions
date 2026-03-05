@@ -1,0 +1,93 @@
+---
+# Build and push with Docker Buildx: multi-platform in a single job (QEMU + buildx).
+# Uses docker/setup-buildx-action and docker/build-push-action.
+# Caller must pass secrets REGISTRY_USERNAME and REGISTRY_PASSWORD via workflow_call secrets.
+name: Docker Build and Push
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Image name"
+        required: true
+        type: string
+      tags:
+        description: "Tags (space-separated)"
+        required: false
+        default: "latest"
+        type: string
+      containerfiles:
+        description: "Containerfile/Dockerfile path"
+        required: false
+        default: "./Containerfile"
+        type: string
+      context:
+        description: "Build context path"
+        required: false
+        default: "."
+        type: string
+      registry:
+        description: "Registry host/namespace"
+        required: true
+        type: string
+      platforms:
+        description: "Platforms (comma-separated)"
+        required: false
+        default: "linux/amd64,linux/arm64"
+        type: string
+    secrets:
+      REGISTRY_USERNAME:
+        description: "Registry username for push"
+        required: true
+      REGISTRY_PASSWORD:
+        description: "Registry password or token for push"
+        required: true
+
+env:
+  REGISTRY: ${{ inputs.registry }}
+  IMAGE: ${{ inputs.image }}
+  TAGS: ${{ inputs.tags }}
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.12
+
+      - name: Log in to registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Prepare tags and dockerfile path
+        id: prep
+        run: |
+          tag_list=""
+          for t in ${{ env.TAGS }}; do
+            tag_list="${tag_list}${{ env.REGISTRY }}/${{ env.IMAGE }}:${t}"$'\n'
+          done
+          echo "tag_list<<EOF" >> "$GITHUB_OUTPUT"
+          echo -n "$tag_list" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          cf="${{ inputs.containerfiles }}"
+          dockerfile_path=$(printf '%s' "$cf" | head -1)
+          echo "dockerfile=$dockerfile_path" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6.19
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ steps.prep.outputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.prep.outputs.tag_list }}
