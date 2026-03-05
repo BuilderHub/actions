@@ -35,6 +35,11 @@ on:
         required: false
         default: "linux/amd64,linux/arm64"
         type: string
+      push:
+        description: "Push image to registry (false = build only)"
+        required: false
+        default: true
+        type: boolean
     secrets:
       REGISTRY_USERNAME:
         description: "Registry username for push"
@@ -63,6 +68,7 @@ jobs:
         uses: docker/setup-buildx-action@v3.12.0
 
       - name: Log in to registry
+        if: inputs.push != false
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -89,5 +95,5 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ steps.prep.outputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
-          push: true
+          push: ${{ inputs.push }}
           tags: ${{ steps.prep.outputs.tag_list }}
