@@ -136,10 +136,12 @@ jobs:
 
             if [ -n "${OCI_ANNOTATIONS:-}" ]; then
               # BuildKit-style: [type:]key=value or key=value (default: index)
-              # Types: index, manifest-descriptor (comma-separated for both)
+              # Types: index, manifest, manifest-descriptor. Platform qualifier: type[os/arch]
+              # See: https://docs.docker.com/reference/cli/docker/buildx/build/#annotation
               index_args=()
-              descriptor_args=()
-              digests=($(buildah manifest inspect "${manifest}" | jq -r '.manifests[].digest'))
+              descriptor_anns=()
+              descriptor_platforms=()
+              mapfile -t manifest_entries < <(buildah manifest inspect "${manifest}" | jq -r '.manifests[] | "\(.digest)|\(.platform.os)/\(.platform.architecture)"')
 
               while IFS= read -r raw_line; do
                 raw_line="${raw_line%$'\r'}"
@@ -162,19 +164,34 @@ jobs:
                 fi
 
                 if [[ "$key_part" == *":"* ]]; then
-                  types="${key_part%%:*}"
+                  types_part="${key_part%%:*}"
                   ann="${key_part#*:}=${val}"
                 else
-                  types="index"
+                  types_part="index"
                   ann="${key_part}=${val}"
                 fi
 
-                IFS=',' read -ra TYPES <<< "$types"
+                IFS=',' read -ra TYPES <<< "$types_part"
                 for t in "${TYPES[@]}"; do
                   t="${t// /}"
+                  platform_filter=""
+                  if [[ "$t" =~ ^([a-z-]+)\[([^]]+)\]$ ]]; then
+                    platform_filter="${BASH_REMATCH[2]}"
+                    t="${BASH_REMATCH[1]}"
+                  fi
+
                   case "$t" in
-                    index) index_args+=(--annotation "${ann}") ;;
-                    manifest-descriptor) descriptor_args+=(--annotation "${ann}") ;;
+                    index)
+                      if [[ -n "$platform_filter" ]]; then
+                        echo "Platform qualifier not supported for index, skipping"
+                        continue
+                      fi
+                      index_args+=(--annotation "${ann}")
+                      ;;
+                    manifest|manifest-descriptor)
+                      descriptor_anns+=("${ann}")
+                      descriptor_platforms+=("${platform_filter}")
+                      ;;
                     *) echo "Unknown annotation type '$t', skipping" ;;
                   esac
                 done
@@ -183,11 +200,21 @@ jobs:
               if [ ${#index_args[@]} -gt 0 ]; then
                 buildah manifest annotate --index "${index_args[@]}" "${manifest}"
               fi
-              if [ ${#descriptor_args[@]} -gt 0 ]; then
-                for digest in "${digests[@]}"; do
-                  buildah manifest annotate "${descriptor_args[@]}" "${manifest}" "$digest"
+
+              for entry in "${manifest_entries[@]}"; do
+                digest="${entry%%|*}"
+                platform="${entry#*|}"
+                annotate_args=()
+                for i in "${!descriptor_anns[@]}"; do
+                  filter="${descriptor_platforms[i]}"
+                  if [[ -z "$filter" || "$filter" == "$platform" ]]; then
+                    annotate_args+=(--annotation "${descriptor_anns[i]}")
+                  fi
                 done
-              fi
+                if [ ${#annotate_args[@]} -gt 0 ]; then
+                  buildah manifest annotate "${annotate_args[@]}" "${manifest}" "$digest"
+                fi
+              done
             fi
 
             buildah manifest push --all "${manifest}"
