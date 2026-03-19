@@ -91,15 +91,17 @@ jobs:
 
       - name: Prepare tags and dockerfile path
         id: prep
+        env:
+          CONTAINERFILES: ${{ inputs.containerfiles }}
         run: |
           tag_list=""
-          for t in ${{ env.TAGS }}; do
-            tag_list="${tag_list}${{ env.REGISTRY }}/${{ env.IMAGE }}:${t}"$'\n'
+          for t in $TAGS; do
+            tag_list="${tag_list}${REGISTRY}/${IMAGE}:${t}"$'\n'
           done
           echo "tag_list<<EOF" >> "$GITHUB_OUTPUT"
           echo -n "$tag_list" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          cf="${{ inputs.containerfiles }}"
+          cf="$CONTAINERFILES"
           dockerfile_path=$(printf '%s' "$cf" | head -1)
           echo "dockerfile=$dockerfile_path" >> "$GITHUB_OUTPUT"
 

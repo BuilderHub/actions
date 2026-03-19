@@ -88,7 +88,9 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Prepare OCI annotation args
-        id: annotation_args
+        id: annotation-args
+        env:
+          OCI_ANNOTATIONS: ${{ inputs.annotations }}
         run: |
           args=""
           while IFS= read -r line; do
@@ -99,9 +101,7 @@ jobs:
               continue
             fi
             args="${args}--annotation ${line}"$'\n'
-          done <<'ANNOTATIONS'
-          ${{ inputs.annotations }}
-          ANNOTATIONS
+          done < <(printf '%s\n' "$OCI_ANNOTATIONS")
           echo "extra-args<<EOF" >> "$GITHUB_OUTPUT"
           echo -n "$args" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
@@ -118,15 +118,18 @@ jobs:
           # buildah-build doesn't expose an `annotations` input, so we pass OCI annotations
           # to `buildah bud` via `extra-args`.
           oci: ${{ inputs.annotations != '' }}
-          extra-args: ${{ steps.annotation_args.outputs.extra-args }}
+          extra-args: ${{ steps.annotation-args.outputs.extra-args }}
 
       - name: Tag and push arch-specific images
         if: inputs.push
+        env:
+          IMAGE_WITH_TAG: ${{ steps.build.outputs.image-with-tag }}
+          ARCH: ${{ matrix.arch }}
         run: |
           # Resolve image ID by the reference the buildah-build action used (image:first_tag)
-          img_id=$(buildah images -q "${{ steps.build.outputs.image-with-tag }}" | head -1)
-          for t in ${{ env.TAGS }}; do
-            ref="${{ env.REGISTRY }}/${{ env.IMAGE }}:${t}-${{ matrix.arch }}"
+          img_id=$(buildah images -q "$IMAGE_WITH_TAG" | head -1)
+          for t in $TAGS; do
+            ref="${REGISTRY}/${IMAGE}:${t}-${ARCH}"
             buildah tag "$img_id" "$ref"
             buildah push "$ref"
           done
@@ -146,10 +149,10 @@ jobs:
 
       - name: Create and push manifest list
         run: |
-          for tag in ${{ env.TAGS }}; do
-            manifest="${{ env.REGISTRY }}/${{ env.IMAGE }}:${tag}"
+          for tag in $TAGS; do
+            manifest="${REGISTRY}/${IMAGE}:${tag}"
             buildah manifest create "${manifest}"
-            buildah manifest add "${manifest}" "docker://${{ env.REGISTRY }}/${{ env.IMAGE }}:${tag}-amd64"
-            buildah manifest add "${manifest}" "docker://${{ env.REGISTRY }}/${{ env.IMAGE }}:${tag}-arm64"
+            buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-amd64"
+            buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-arm64"
             buildah manifest push --all "${manifest}"
           done
