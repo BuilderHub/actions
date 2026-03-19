@@ -87,25 +87,6 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Prepare OCI annotation args
-        id: annotation-args
-        env:
-          OCI_ANNOTATIONS: ${{ inputs.annotations }}
-        run: |
-          args=""
-          while IFS= read -r line; do
-            # Handle CRLF inputs (common when copy/pasting from Windows).
-            line="${line%$'\r'}"
-            # Skip blank lines so callers can use nicer formatting.
-            if [ -z "$line" ]; then
-              continue
-            fi
-            args="${args}--annotation ${line}"$'\n'
-          done < <(printf '%s\n' "$OCI_ANNOTATIONS")
-          echo "extra-args<<EOF" >> "$GITHUB_OUTPUT"
-          echo -n "$args" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
       - name: Build (Buildah)
         id: build
         uses: redhat-actions/buildah-build@v2.13
@@ -115,10 +96,6 @@ jobs:
           containerfiles: ${{ inputs.containerfiles }}
           context: ${{ inputs.context }}
           labels: ${{ inputs.labels }}
-          # buildah-build doesn't expose an `annotations` input, so we pass OCI annotations
-          # to `buildah bud` via `extra-args`.
-          oci: ${{ inputs.annotations != '' }}
-          extra-args: ${{ steps.annotation-args.outputs.extra-args }}
 
       - name: Tag and push arch-specific images
         if: inputs.push
@@ -148,11 +125,47 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Create and push manifest list
+        env:
+          OCI_ANNOTATIONS: ${{ inputs.annotations }}
         run: |
           for tag in $TAGS; do
             manifest="${REGISTRY}/${IMAGE}:${tag}"
             buildah manifest create "${manifest}"
             buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-amd64"
             buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-arm64"
+
+            if [ -n "${OCI_ANNOTATIONS:-}" ]; then
+              # Apply OCI manifest annotations per-arch entry.
+              while IFS= read -r raw_line; do
+                raw_line="${raw_line%$'\r'}"
+                # Trim leading/trailing whitespace.
+                raw_line="${raw_line#"${raw_line%%[![:space:]]*}"}"
+                raw_line="${raw_line%"${raw_line##*[![:space:]]}"}"
+                [ -z "$raw_line" ] && continue
+
+                # Expected format: key=value (value may contain spaces).
+                if [[ "$raw_line" != *"="* ]]; then
+                  echo "Skipping invalid annotation line (missing '='): $raw_line"
+                  continue
+                fi
+
+                key="${raw_line%%=*}"
+                val="${raw_line#*=}"
+
+                # Sanitize values like: foo='bar baz' -> foo=bar baz
+                if [[ "$val" =~ ^\'(.*)\'$ ]]; then
+                  val="${BASH_REMATCH[1]}"
+                elif [[ "$val" =~ ^\"(.*)\"$ ]]; then
+                  val="${BASH_REMATCH[1]}"
+                fi
+
+                ann="${key}=${val}"
+                for arch in amd64 arm64; do
+                  entry="docker://${REGISTRY}/${IMAGE}:${tag}-${arch}"
+                  buildah manifest annotate --annotation "$ann" "${manifest}" "$entry"
+                done
+              done < <(printf '%s\n' "$OCI_ANNOTATIONS")
+            fi
+
             buildah manifest push --all "${manifest}"
           done
