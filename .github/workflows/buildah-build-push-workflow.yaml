@@ -35,6 +35,16 @@ on:
         required: false
         default: true
         type: boolean
+      labels:
+        description: "Image labels (newline-separated key=value)"
+        required: false
+        default: ""
+        type: string
+      annotations:
+        description: "OCI image annotations (newline-separated key=value)"
+        required: false
+        default: ""
+        type: string
     secrets:
       REGISTRY_USERNAME:
         description: "Registry username for push"
@@ -47,6 +57,10 @@ env:
   REGISTRY: ${{ inputs.registry }}
   IMAGE: ${{ inputs.image }}
   TAGS: ${{ inputs.tags }}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
@@ -73,6 +87,25 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
+      - name: Prepare OCI annotation args
+        id: annotation-args
+        env:
+          OCI_ANNOTATIONS: ${{ inputs.annotations }}
+        run: |
+          args=""
+          while IFS= read -r line; do
+            # Handle CRLF inputs (common when copy/pasting from Windows).
+            line="${line%$'\r'}"
+            # Skip blank lines so callers can use nicer formatting.
+            if [ -z "$line" ]; then
+              continue
+            fi
+            args="${args}--annotation ${line}"$'\n'
+          done < <(printf '%s\n' "$OCI_ANNOTATIONS")
+          echo "extra-args<<EOF" >> "$GITHUB_OUTPUT"
+          echo -n "$args" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Build (Buildah)
         id: build
         uses: redhat-actions/buildah-build@v2.13
@@ -81,14 +114,22 @@ jobs:
           tags: ${{ env.TAGS }}
           containerfiles: ${{ inputs.containerfiles }}
           context: ${{ inputs.context }}
+          labels: ${{ inputs.labels }}
+          # buildah-build doesn't expose an `annotations` input, so we pass OCI annotations
+          # to `buildah bud` via `extra-args`.
+          oci: ${{ inputs.annotations != '' }}
+          extra-args: ${{ steps.annotation-args.outputs.extra-args }}
 
       - name: Tag and push arch-specific images
         if: inputs.push
+        env:
+          IMAGE_WITH_TAG: ${{ steps.build.outputs.image-with-tag }}
+          ARCH: ${{ matrix.arch }}
         run: |
           # Resolve image ID by the reference the buildah-build action used (image:first_tag)
-          img_id=$(buildah images -q "${{ steps.build.outputs.image-with-tag }}" | head -1)
-          for t in ${{ env.TAGS }}; do
-            ref="${{ env.REGISTRY }}/${{ env.IMAGE }}:${t}-${{ matrix.arch }}"
+          img_id=$(buildah images -q "$IMAGE_WITH_TAG" | head -1)
+          for t in $TAGS; do
+            ref="${REGISTRY}/${IMAGE}:${t}-${ARCH}"
             buildah tag "$img_id" "$ref"
             buildah push "$ref"
           done
@@ -97,7 +138,7 @@ jobs:
     if: inputs.push
     name: Create and push manifest
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: build
     steps:
       - name: Log in to registry
         uses: redhat-actions/podman-login@v1.7
@@ -108,10 +149,10 @@ jobs:
 
       - name: Create and push manifest list
         run: |
-          for tag in ${{ env.TAGS }}; do
-            manifest="${{ env.REGISTRY }}/${{ env.IMAGE }}:${tag}"
+          for tag in $TAGS; do
+            manifest="${REGISTRY}/${IMAGE}:${tag}"
             buildah manifest create "${manifest}"
-            buildah manifest add "${manifest}" "docker://${{ env.REGISTRY }}/${{ env.IMAGE }}:${tag}-amd64"
-            buildah manifest add "${manifest}" "docker://${{ env.REGISTRY }}/${{ env.IMAGE }}:${tag}-arm64"
+            buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-amd64"
+            buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-arm64"
             buildah manifest push --all "${manifest}"
           done

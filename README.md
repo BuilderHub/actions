@@ -55,6 +55,8 @@ jobs:
 | `tags`        | no       | `latest`          | Space-separated tags                  |
 | `containerfiles` | no    | `./Containerfile` | Path(s) to Containerfile/Dockerfile   |
 | `context`     | no       | `.`               | Build context path                   |
+| `labels`      | no       | `""`              | Image labels (newline-separated `key=value`) |
+| `annotations` | no       | `""`              | OCI image annotations (newline-separated `key=value`) |
 | `registry`    | yes      | —                 | Registry host (e.g. `ghcr.io`)       |
 | `push`        | no       | `true`            | Push to registry; `false` = build only |
 
