@@ -135,38 +135,59 @@ jobs:
             buildah manifest add "${manifest}" "docker://${REGISTRY}/${IMAGE}:${tag}-arm64"
 
             if [ -n "${OCI_ANNOTATIONS:-}" ]; then
-              # buildah manifest annotate requires digest, not docker:// URL.
+              # BuildKit-style: [type:]key=value or key=value (default: index)
+              # Types: index, manifest-descriptor (comma-separated for both)
+              index_args=()
+              descriptor_args=()
               digests=($(buildah manifest inspect "${manifest}" | jq -r '.manifests[].digest'))
 
-              for digest in "${digests[@]}"; do
-                annotate_args=()
-                while IFS= read -r raw_line; do
-                  raw_line="${raw_line%$'\r'}"
-                  raw_line="${raw_line#"${raw_line%%[![:space:]]*}"}"
-                  raw_line="${raw_line%"${raw_line##*[![:space:]]}"}"
-                  [ -z "$raw_line" ] && continue
+              while IFS= read -r raw_line; do
+                raw_line="${raw_line%$'\r'}"
+                raw_line="${raw_line#"${raw_line%%[![:space:]]*}"}"
+                raw_line="${raw_line%"${raw_line##*[![:space:]]}"}"
+                [ -z "$raw_line" ] && continue
 
-                  if [[ "$raw_line" != *"="* ]]; then
-                    echo "Skipping invalid annotation line (missing '='): $raw_line"
-                    continue
-                  fi
-
-                  key="${raw_line%%=*}"
-                  val="${raw_line#*=}"
-
-                  if [[ "$val" =~ ^\'(.*)\'$ ]]; then
-                    val="${BASH_REMATCH[1]}"
-                  elif [[ "$val" =~ ^\"(.*)\"$ ]]; then
-                    val="${BASH_REMATCH[1]}"
-                  fi
-
-                  annotate_args+=(--annotation "${key}=${val}")
-                done < <(printf '%s\n' "$OCI_ANNOTATIONS")
-
-                if [ ${#annotate_args[@]} -gt 0 ]; then
-                  buildah manifest annotate "${annotate_args[@]}" "${manifest}" "$digest"
+                if [[ "$raw_line" != *"="* ]]; then
+                  echo "Skipping invalid annotation line (missing '='): $raw_line"
+                  continue
                 fi
-              done
+
+                key_part="${raw_line%%=*}"
+                val="${raw_line#*=}"
+
+                if [[ "$val" =~ ^\'(.*)\'$ ]]; then
+                  val="${BASH_REMATCH[1]}"
+                elif [[ "$val" =~ ^\"(.*)\"$ ]]; then
+                  val="${BASH_REMATCH[1]}"
+                fi
+
+                if [[ "$key_part" == *":"* ]]; then
+                  types="${key_part%%:*}"
+                  ann="${key_part#*:}=${val}"
+                else
+                  types="index"
+                  ann="${key_part}=${val}"
+                fi
+
+                IFS=',' read -ra TYPES <<< "$types"
+                for t in "${TYPES[@]}"; do
+                  t="${t// /}"
+                  case "$t" in
+                    index) index_args+=(--annotation "${ann}") ;;
+                    manifest-descriptor) descriptor_args+=(--annotation "${ann}") ;;
+                    *) echo "Unknown annotation type '$t', skipping" ;;
+                  esac
+                done
+              done < <(printf '%s\n' "$OCI_ANNOTATIONS")
+
+              if [ ${#index_args[@]} -gt 0 ]; then
+                buildah manifest annotate --index "${index_args[@]}" "${manifest}"
+              fi
+              if [ ${#descriptor_args[@]} -gt 0 ]; then
+                for digest in "${digests[@]}"; do
+                  buildah manifest annotate "${descriptor_args[@]}" "${manifest}" "$digest"
+                done
+              fi
             fi
 
             buildah manifest push --all "${manifest}"
