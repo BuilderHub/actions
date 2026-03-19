@@ -40,6 +40,16 @@ on:
         required: false
         default: true
         type: boolean
+      labels:
+        description: "Image labels (newline-separated key=value)"
+        required: false
+        default: ""
+        type: string
+      annotations:
+        description: "OCI image annotations (newline-separated key=value)"
+        required: false
+        default: ""
+        type: string
     secrets:
       REGISTRY_USERNAME:
         description: "Registry username for push"
@@ -52,6 +62,10 @@ env:
   REGISTRY: ${{ inputs.registry }}
   IMAGE: ${{ inputs.image }}
   TAGS: ${{ inputs.tags }}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
@@ -89,11 +103,13 @@ jobs:
           dockerfile_path=$(printf '%s' "$cf" | head -1)
           echo "dockerfile=$dockerfile_path" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build ${{ inputs.push == true && 'and push' || 'only' }}
         uses: docker/build-push-action@v6.19.2
         with:
           context: ${{ inputs.context }}
           file: ${{ steps.prep.outputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
           push: ${{ inputs.push }}
+          labels: ${{ inputs.labels }}
+          annotations: ${{ inputs.annotations }}
           tags: ${{ steps.prep.outputs.tag_list }}
