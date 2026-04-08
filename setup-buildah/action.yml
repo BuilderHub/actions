@@ -1,0 +1,19 @@
+name: 'Setup Buildah'
+description: 'Install Buildah from a containers/buildah GitHub release on Linux (apt-based runners)'
+author: 'BuilderHub'
+branding:
+  icon: package
+  color: red
+inputs:
+  buildah-version:
+    description: |
+      containers/buildah release tag (e.g. v1.43.0, 1.43.0) or the keyword latest.
+      The job's default GITHUB_TOKEN is sent to the GitHub API when resolving versions (helps with rate limits).
+    required: false
+    default: latest
+outputs:
+  buildah-path:
+    description: 'Absolute path to the installed buildah binary'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

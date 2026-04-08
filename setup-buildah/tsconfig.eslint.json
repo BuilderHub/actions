@@ -1,0 +1,10 @@
+{
+  "extends": "@redhat-actions/tsconfig",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "vitest.config.ts"
+  ]
+}
