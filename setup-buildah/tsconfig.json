@@ -1,0 +1,14 @@
+{
+  "extends": "@redhat-actions/tsconfig",
+  "compilerOptions": {
+    "rootDir": "src/",
+    "outDir": "out/"
+  },
+  "include": [
+    "src/"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "vitest.config.ts"
+  ]
+}
